@@ -2,7 +2,7 @@
 
 <img src="https://raw.githubusercontent.com/sp-uhh/sgmse/main/diffusion_process.png" width="500" alt="Diffusion process on a spectrogram: In the forward process noise is gradually added to the clean speech spectrogram x0, while the reverse process learns to generate clean speech in an iterative fashion starting from the corrupted signal xT.">
 
-This repository contains the official PyTorch implementations for the papers:
+This repository contains the official PyTorch implementations for the papers, enhanced with comprehensive dereverberation dataset management capabilities:
 
 - Simon Welker, Julius Richter, Timo Gerkmann, [*"Speech Enhancement with Score-Based Generative Models in the Complex STFT Domain"*](https://www.isca-speech.org/archive/interspeech_2022/welker22_interspeech.html), ISCA Interspeech, Incheon, Korea, Sept. 2022. [[bibtex]](#citations--references)
 - Julius Richter, Simon Welker, Jean-Marie Lemercier, Bunlong Lay, Timo Gerkmann, [*"Speech Enhancement and Dereverberation with Diffusion-Based Generative Models"*](https://ieeexplore.ieee.org/abstract/document/10149431), IEEE/ACM Transactions on Audio, Speech, and Language Processing, vol. 31, pp. 2351-2364, 2023. [[bibtex]](#citations--references)
@@ -91,6 +91,56 @@ To see all available training options, run `python train.py --help`. Note that t
     - Also note that the default parameters for the spectrogram transformation in this repository are slightly different from the ones listed in the first (Interspeech) paper (`--spec_factor 0.15` rather than `--spec_factor 0.333`), but we've found the value in this repository to generally perform better for both models [1] and [2].
 - For the investigating training objectives paper [4], we use `--backbone ncsnpp_v2`.
 - For the Schrödinger bridge model [4], we use e.g. `--backbone ncsnpp_v2 --sde sbve --loss_type data_prediction --pesq_weight 5e-4`.
+
+## Dereverberation Dataset Management
+
+This repository now includes comprehensive dataset management functionality specifically designed for dereverberation tasks. The enhanced system supports:
+
+### Key Features:
+- **CSV-based Dataset Management**: Support for metadata-rich datasets with T60, DRR, and room information
+- **Enhanced Data Module**: Extended functionality for reverb datasets with filtering capabilities
+- **Dataset Utilities**: Tools for creating, validating, and analyzing datasets
+- **Specialized Training**: Dedicated training script with reverb-specific metrics
+- **Comprehensive Evaluation**: Dereverberation-specific metrics including T60 estimation and DRR improvement
+
+### Quick Start for Dereverberation:
+
+1. **Create a dataset from ACE Corpus**:
+```bash
+python preprocessing/create_ace_dataset.py \
+    --ace_corpus_dir /path/to/ace_corpus/ \
+    --clean_speech_dir /path/to/clean_speech/ \
+    --output_dir /path/to/output/
+```
+
+2. **Train with CSV dataset**:
+```bash
+python train_dereverb.py \
+    --csv_path dataset.csv \
+    --backbone ncsnpp \
+    --filter_t60_min 0.3 \
+    --filter_t60_max 2.0 \
+    --batch_size 8
+```
+
+3. **Evaluate dereverberation performance**:
+```bash
+python evaluate_dereverb.py \
+    --clean_dir path/to/clean/ \
+    --reverb_dir path/to/reverb/ \
+    --enhanced_dir path/to/enhanced/ \
+    --output_dir evaluation_results/
+```
+
+### Dataset Format:
+The system supports CSV datasets with columns like:
+- `clean_path`, `reverb_path`: Audio file paths
+- `t60`: Reverberation time (seconds)
+- `drr`: Direct-to-reverberant ratio (dB)
+- `room_type`: Room classification
+- `subset`: Train/validation/test split
+
+For detailed documentation, see [DEREVERBERATION_GUIDE.md](DEREVERBERATION_GUIDE.md).
 
 ## Evaluation
 
