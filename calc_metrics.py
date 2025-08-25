@@ -6,10 +6,12 @@ from tqdm import tqdm
 from pesq import pesq
 import pandas as pd
 import librosa
+import numpy as np
 
 from pystoi import stoi
 
 from sgmse.util.other import energy_ratios, mean_std
+from advanced_metrics import AdvancedMetricsCalculator, detect_content_type
 
 
 if __name__ == '__main__':
@@ -17,51 +19,84 @@ if __name__ == '__main__':
     parser.add_argument("--clean_dir", type=str, required=True, help='Directory containing the clean data')
     parser.add_argument("--noisy_dir", type=str, required=True, help='Directory containing the noisy data')
     parser.add_argument("--enhanced_dir", type=str, required=True, help='Directory containing the enhanced data')
+    parser.add_argument("--use_advanced", action='store_true', help='Use advanced metrics calculation')
+    parser.add_argument("--kaggle_format", action='store_true', help='Output in Kaggle submission format')
     args = parser.parse_args()
 
-    data = {"filename": [], "pesq": [], "estoi": [], "si_sdr": [], "si_sir": [],  "si_sar": []}
-
-    # Evaluate standard metrics
-    noisy_files = []
-    noisy_files += sorted(glob(join(args.noisy_dir, '*.wav')))
-    noisy_files += sorted(glob(join(args.noisy_dir, '**', '*.wav')))
-    for noisy_file in tqdm(noisy_files):
-        filename = noisy_file.replace(args.noisy_dir, "")[1:]
-        if 'dB' in filename:
-            clean_filename = filename.split("_")[0] + ".wav"
+    if args.use_advanced:
+        # Use advanced metrics calculator
+        calculator = AdvancedMetricsCalculator()
+        print("Using advanced metrics calculation...")
+        results_df = calculator.process_directory_pair(args.enhanced_dir, args.clean_dir)
+        
+        if args.kaggle_format:
+            output_path = join(args.enhanced_dir, "kaggle_submission.csv")
+            calculator.save_kaggle_format(results_df, output_path)
         else:
-            clean_filename = filename
-        x, sr_x = read(join(args.clean_dir, clean_filename))
-        y, sr_y = read(join(args.noisy_dir, filename))
-        x_hat, sr_x_hat = read(join(args.enhanced_dir, filename))
-        assert sr_x == sr_y == sr_x_hat
-        n = y - x 
-        x_hat_16k = librosa.resample(x_hat, orig_sr=sr_x_hat, target_sr=16000) if sr_x_hat != 16000 else x_hat
-        x_16k = librosa.resample(x, orig_sr=sr_x, target_sr=16000) if sr_x != 16000 else x
-        data["filename"].append(filename)
-        data["pesq"].append(pesq(16000, x_16k, x_hat_16k, 'wb'))
-        data["estoi"].append(stoi(x, x_hat, sr_x, extended=True))
-        data["si_sdr"].append(energy_ratios(x_hat, x, n)[0])
-        data["si_sir"].append(energy_ratios(x_hat, x, n)[1])
-        data["si_sar"].append(energy_ratios(x_hat, x, n)[2])
+            # Save detailed results
+            detailed_path = join(args.enhanced_dir, "_advanced_results.csv")
+            results_df.to_csv(detailed_path, index=False)
+            print(f"Advanced results saved to: {detailed_path}")
+    else:
+        # Use original metrics calculation
+        data = {"filename": [], "pesq": [], "estoi": [], "si_sdr": [], "si_sir": [],  "si_sar": []}
 
-    # Save results as DataFrame    
-    df = pd.DataFrame(data)
+        # Evaluate standard metrics
+        noisy_files = []
+        noisy_files += sorted(glob(join(args.noisy_dir, '*.wav')))
+        noisy_files += sorted(glob(join(args.noisy_dir, '**', '*.wav')))
+        for noisy_file in tqdm(noisy_files):
+            filename = noisy_file.replace(args.noisy_dir, "")[1:]
+            if 'dB' in filename:
+                clean_filename = filename.split("_")[0] + ".wav"
+            else:
+                clean_filename = filename
+            x, sr_x = read(join(args.clean_dir, clean_filename))
+            y, sr_y = read(join(args.noisy_dir, filename))
+            x_hat, sr_x_hat = read(join(args.enhanced_dir, filename))
+            assert sr_x == sr_y == sr_x_hat
+            n = y - x 
+            x_hat_16k = librosa.resample(x_hat, orig_sr=sr_x_hat, target_sr=16000) if sr_x_hat != 16000 else x_hat
+            x_16k = librosa.resample(x, orig_sr=sr_x, target_sr=16000) if sr_x != 16000 else x
+            data["filename"].append(filename)
+            
+            # Detect content type for appropriate metrics
+            content_type = detect_content_type(join(args.clean_dir, clean_filename))
+            
+            # Calculate metrics based on content type
+            if content_type == 'speech':
+                data["pesq"].append(pesq(16000, x_16k, x_hat_16k, 'wb'))
+                data["estoi"].append(stoi(x, x_hat, sr_x, extended=True))
+            else:  # music
+                # For music, use different metrics or adapt existing ones
+                try:
+                    pesq_score = pesq(16000, x_16k, x_hat_16k, 'wb') 
+                except:
+                    pesq_score = 0.0  # PESQ might not work well for music
+                data["pesq"].append(pesq_score)
+                data["estoi"].append(stoi(x, x_hat, sr_x, extended=True))
+            
+            data["si_sdr"].append(energy_ratios(x_hat, x, n)[0])
+            data["si_sir"].append(energy_ratios(x_hat, x, n)[1])
+            data["si_sar"].append(energy_ratios(x_hat, x, n)[2])
 
-    # Print results
-    print("PESQ: {:.2f} ± {:.2f}".format(*mean_std(df["pesq"].to_numpy())))
-    print("ESTOI: {:.2f} ± {:.2f}".format(*mean_std(df["estoi"].to_numpy())))
-    print("SI-SDR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sdr"].to_numpy())))
-    print("SI-SIR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir"].to_numpy())))
-    print("SI-SAR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar"].to_numpy())))
+        # Save results as DataFrame    
+        df = pd.DataFrame(data)
 
-    # Save average results to file
-    log = open(join(args.enhanced_dir, "_avg_results.txt"), "w")
-    log.write("PESQ: {:.2f} ± {:.2f}".format(*mean_std(df["pesq"].to_numpy())) + "\n")
-    log.write("ESTOI: {:.2f} ± {:.2f}".format(*mean_std(df["estoi"].to_numpy())) + "\n")
-    log.write("SI-SDR: {:.1f} ± {:.2f}".format(*mean_std(df["si_sdr"].to_numpy())) + "\n")
-    log.write("SI-SIR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir"].to_numpy())) + "\n")
-    log.write("SI-SAR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar"].to_numpy())) + "\n")
+        # Print results
+        print("PESQ: {:.2f} ± {:.2f}".format(*mean_std(df["pesq"].to_numpy())))
+        print("ESTOI: {:.2f} ± {:.2f}".format(*mean_std(df["estoi"].to_numpy())))
+        print("SI-SDR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sdr"].to_numpy())))
+        print("SI-SIR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir"].to_numpy())))
+        print("SI-SAR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar"].to_numpy())))
 
-    # Save DataFrame as csv file
-    df.to_csv(join(args.enhanced_dir, "_results.csv"), index=False)
+        # Save average results to file
+        log = open(join(args.enhanced_dir, "_avg_results.txt"), "w")
+        log.write("PESQ: {:.2f} ± {:.2f}".format(*mean_std(df["pesq"].to_numpy())) + "\n")
+        log.write("ESTOI: {:.2f} ± {:.2f}".format(*mean_std(df["estoi"].to_numpy())) + "\n")
+        log.write("SI-SDR: {:.1f} ± {:.2f}".format(*mean_std(df["si_sdr"].to_numpy())) + "\n")
+        log.write("SI-SIR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sir"].to_numpy())) + "\n")
+        log.write("SI-SAR: {:.1f} ± {:.1f}".format(*mean_std(df["si_sar"].to_numpy())) + "\n")
+
+        # Save DataFrame as csv file
+        df.to_csv(join(args.enhanced_dir, "_results.csv"), index=False)
