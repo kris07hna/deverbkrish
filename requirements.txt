@@ -25,3 +25,8 @@ torchinfo
 torchsde 
 tqdm 
 wandb
+# Enhanced features dependencies
+optuna
+soundfile
+matplotlib
+scikit-learn
