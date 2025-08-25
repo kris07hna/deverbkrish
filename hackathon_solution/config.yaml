@@ -1,0 +1,136 @@
+# Enhanced SGMSE+ Configuration for De-reverberation Hackathon
+# =============================================================
+
+# Base Model Configuration
+model:
+  backbone: "ncsnpp_v2"  # Enhanced NCSN++ backbone
+  sde: "ouve"           # Ornstein-Uhlenbeck Variance Exploding SDE
+  loss_type: "score_matching"
+  loss_weighting: "sigma^2"
+  sr: 16000
+  
+# Enhanced Features (Novel Contributions)
+enhanced_features:
+  use_attention: true
+  use_freq_aware: true
+  use_adaptive_loss: true
+  use_spectral_loss: true
+  spectral_loss_weight: 0.1
+  attention_dropout: 0.1
+  progressive_training: true
+  difficulty_threshold: 0.5
+
+# Training Configuration
+training:
+  lr: 1e-4
+  ema_decay: 0.999
+  batch_size: 8
+  max_epochs: 50
+  num_eval_files: 10
+  
+# Data Configuration
+data:
+  format: "reverb"
+  normalize: "noisy"
+  spec_factor: 0.15
+  spec_abs_exponent: 0.5
+  transform_type: "exponent"
+  num_frames: 64
+  hop_length: 256
+  n_fft: 510
+
+# Advanced Data Augmentation
+augmentation:
+  spectral_aug:
+    freq_mask_param: 30
+    time_mask_param: 30
+    num_freq_masks: 2
+    num_time_masks: 2
+    mask_prob: 0.6
+    reverb_aware: true
+    
+  dynamic_range:
+    compression_range: [0.7, 1.8]
+    expansion_range: [1.0, 2.5]
+    apply_prob: 0.4
+    
+  rir_simulation:
+    rt60_range: [0.3, 1.2]
+    apply_prob: 0.3
+    
+  noise_aug:
+    snr_range: [15, 35]
+    apply_prob: 0.4
+    
+  spectral_morph:
+    morph_prob: 0.25
+    alpha_range: [0.1, 0.4]
+
+# Ensemble Configuration
+ensemble:
+  strategies:
+    - "simple_average"
+    - "uncertainty_weighted"
+    - "progressive_denoising"
+    - "tta"
+  enable_tta: true
+  enable_uncertainty: true
+  
+# Test-Time Augmentation
+tta:
+  configs:
+    - sampler_type: "pc"
+      corrector: "ald"
+      N: 30
+      corrector_steps: 1
+      snr: 0.5
+    - sampler_type: "pc"
+      corrector: "ald"
+      N: 50
+      corrector_steps: 2
+      snr: 0.33
+    - sampler_type: "ode"
+      N: 35
+
+# Evaluation Configuration
+evaluation:
+  metrics:
+    standard: ["pesq", "stoi", "si_sdr"]
+    perceptual: ["mel_spectral_loss", "spectral_convergence"]
+    reverb_specific: ["rt60_estimation", "drr", "c50"]
+    computational: true
+    
+# Computational Constraints
+computational:
+  max_gmacs: 10.0  # Maximum GMAC/s constraint
+  target_inference_time: 1.0  # Target inference time per second of audio
+  memory_limit_gb: 8  # GPU memory limit
+
+# Dataset Paths (Kaggle)
+paths:
+  clean_data: "/kaggle/input/clean-10"
+  reverb_data: "/kaggle/input/revererbt-10"
+  output_dir: "/kaggle/working/outputs"
+  model_dir: "/kaggle/working/models"
+  results_dir: "/kaggle/working/results"
+  submission_dir: "/kaggle/working/submission"
+
+# Performance Targets
+targets:
+  pesq: 3.5  # Target PESQ score
+  stoi: 0.92  # Target STOI score
+  si_sdr: 18.0  # Target SI-SDR in dB
+  
+# Training Optimizations
+optimizations:
+  mixed_precision: true
+  gradient_clipping: 1.0
+  accumulate_grad_batches: 2
+  val_check_interval: 0.5
+  deterministic: false
+  
+# Hardware Configuration
+hardware:
+  num_workers: 2
+  pin_memory: true
+  persistent_workers: true
